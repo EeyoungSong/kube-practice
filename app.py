@@ -2,14 +2,14 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
-@app.get("/api/")
+@app.get("/")
 def root():
     return {"message": "Hello from AKS!"}
 
-@app.get("/api/health")
+@app.get("/health")
 def health():
     return {"status": "ok"}
 
-@app.get("/api/echo/{name}")
+@app.get("/echo/{name}")
 def echo(name: str):
     return {"message": f"Hi {name}, welcome to AKS!"}
