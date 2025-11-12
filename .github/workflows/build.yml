@@ -11,35 +11,41 @@ on:
       - ".github/workflows/build.yml"
 
 env:
-  REGISTRY: eeyoungacr.azurecr.io # ✅ ACR 이름으로 바꿔주세요
-  IMAGE_NAME: kube-practice-api # ✅ 원하는 이미지 이름
-  INFRA_REPO: EeyoungSong/kube-practice-infra # ✅ Infra Repo 주소 (user/repo 형식)
+  REGISTRY_NAME: eeyoungacr # ACR 이름 (도메인 제외)
+  REGISTRY: eeyoungacr.azurecr.io
+  IMAGE_NAME: kube-practice-api
+  INFRA_REPO: EeyoungSong/kube-practice-infra # user/repo 형식
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ 앱 리포 체크아웃
       - name: Checkout app repo
         uses: actions/checkout@v4
 
+      # 2️⃣ Azure 로그인
       - name: Log in to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # 3️⃣ ACR 로그인
       - name: Log in to ACR
-        run: az acr login --name ${{ env.REGISTRY }}
+        run: |
+          az acr login --name ${{ env.REGISTRY_NAME }}
 
+      # 4️⃣ Docker 이미지 빌드 및 푸시
       - name: Build and push Docker image
         run: |
           IMAGE_TAG=${{ github.sha }}
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "Building image: $REGISTRY/$IMAGE_NAME:$IMAGE_TAG"
           docker build -t $REGISTRY/$IMAGE_NAME:$IMAGE_TAG .
           docker push $REGISTRY/$IMAGE_NAME:$IMAGE_TAG
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-      # ✅ 다음 단계: Infra Repo의 deployment.yaml 이미지 태그 업데이트
+      # 5️⃣ Infra Repo 체크아웃
       - name: Checkout Infra Repo
         uses: actions/checkout@v4
         with:
@@ -47,18 +53,33 @@ jobs:
           path: infra
           token: ${{ secrets.GH_TOKEN }}
 
+      # 6️⃣ deployment.yaml 이미지 태그 업데이트
       - name: Update image tag in Infra Repo
         run: |
-          DEPLOYMENT_FILE="k8s/deployment.yaml"
+          DEPLOYMENT_FILE="infra/k8s/deployment.yaml"
           IMAGE_TAG=${{ env.IMAGE_TAG }}
           echo "Updating image tag in $DEPLOYMENT_FILE"
-          sed -i "s#image: .*\$#image: $REGISTRY/$IMAGE_NAME:$IMAGE_TAG#g" $DEPLOYMENT_FILE
+          # 이미지 라인이 존재하면 바꾸고, 없으면 추가
+          if grep -q "image:" "$DEPLOYMENT_FILE"; then
+            sed -i "s#image:.*#image: $REGISTRY/$IMAGE_NAME:$IMAGE_TAG#g" "$DEPLOYMENT_FILE"
+          else
+            echo "  image: $REGISTRY/$IMAGE_NAME:$IMAGE_TAG" >> "$DEPLOYMENT_FILE"
+          fi
+          echo "✅ Updated image line to: $REGISTRY/$IMAGE_NAME:$IMAGE_TAG"
 
+      # 7️⃣ 변경사항 커밋 및 푸시
       - name: Commit and push Infra Repo changes
         run: |
-          cd k8s
+          cd infra
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add .
-          git commit -m "Update image tag to $IMAGE_TAG"
-          git push
+
+          # 변경된 경우만 커밋 (없으면 스킵)
+          if ! git diff --quiet; then
+            git add .
+            git commit -m "Update image tag to $IMAGE_TAG"
+            git push
+            echo "✅ Pushed updated deployment.yaml to Infra repo"
+          else
+            echo "ℹ️ No changes to commit"
+          fi
