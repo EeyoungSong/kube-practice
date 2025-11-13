@@ -13,3 +13,7 @@ def health():
 @app.get("/echo/{name}")
 def echo(name: str):
     return {"message": f"Hi {name}, welcome to AKS!"}
+
+@app.get("/echo/")
+def echo():
+    return {"message": "Hello, welcome to AKS!"}
